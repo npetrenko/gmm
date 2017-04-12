@@ -24,6 +24,8 @@ class GMM(object):
 
     def __init__(self, dim = None, ncomps = None, data = None,  method = None, filename = None, params = None):
 
+        self.nanfill = False
+
         if not filename is None:  # load from file
             self.load_model(filename)
 
@@ -53,17 +55,31 @@ class GMM(object):
 
             elif method is "random":
                 # choose ncomp points from data randomly then estimate the parameters
-                mus = pr.sample(data,ncomps)
+                mus = pr.sample(data, ncomps)
+                clusters = [[] for _ in range(ncomps)]
+                for d in data:
+                    i = np.argmin([la.norm(d - m) for m in mus])
+                    clusters[i].append(d)
+
+                for i in range(ncomps):
+                    self.comps.append(Normal(dim, mu = mus[i], sigma = np.cov(clusters[i], rowvar=0)))
+
+                self.priors = np.ones(ncomps, dtype="double") / np.array([len(c) for c in clusters])
+
+            elif method is "nanfill":
+                # choose standard normal as init point
+                mus = pr.sample(data, ncomps)
                 clusters = [[] for i in range(ncomps)]
                 for d in data:
                     i = np.argmin([la.norm(d - m) for m in mus])
                     clusters[i].append(d)
 
                 for i in range(ncomps):
-                    print mus[i], clusters[i]
-                    self.comps.append(Normal(dim, mu = mus[i], sigma = np.cov(clusters[i], rowvar=0)))
+                    self.comps.append(Normal(dim, mu=np.zeros(dim, dtype='float64'),
+                                             sigma=np.diag(np.ones(dim, dtype='float64'))))
 
                 self.priors = np.ones(ncomps, dtype="double") / np.array([len(c) for c in clusters])
+                self.nanfill = True
 
             elif method is "kmeans":
                 # use kmeans to initialize the parameters
@@ -94,7 +110,7 @@ class GMM(object):
             for i in range(ncomps):
                 self.comps.append(Normal(dim))
 
-            self.priors = np.ones(ncomps,dtype='double') / ncomps
+            self.priors = np.ones(ncomps, dtype='double') / ncomps
 
     def __str__(self):
         res = "%d" % self.dim
@@ -154,15 +170,38 @@ class GMM(object):
         d = self.dim
         n = len(data)
 
+        mask = np.isnan(data)
+        data = np.nan_to_num(data)
+        ran = np.arange(mask.shape[1])
+
+        if not self.nanfill:
+            assert not np.any(mask), 'nan filling is supported only with "nanfill" init method'
+
         for l in range(nsteps):
 
             # E step
 
-            responses = np.zeros((k,n))
+            responses = np.zeros((k, n))
 
             for j in range(n):
                 for i in range(k):
-                    responses[i,j] = self.priors[i] * self.comps[i].pdf(data[j])
+                    if self.nanfill and np.any(mask[j]):
+                        conditioned = self.comps[i].condition(ran[~mask[j]], data[j][~mask[j]]).mu
+                        iter = 0
+                        arr = []
+                        for h, incl in enumerate(mask[j]):
+                            if incl:
+                                arr.append(conditioned[iter])
+                                iter += 1
+                            else:
+                                arr.append(0.)
+                        arr = npa(arr)
+                        unmasked = data[j]*~mask[j] + arr
+                        data[j] = unmasked
+                    else:
+                        unmasked = data[j]
+
+                    responses[i, j] = self.priors[i] * self.comps[i].pdf(unmasked)
 
             responses = responses / np.sum(responses,axis=0) # normalize the weights
 
@@ -171,15 +210,15 @@ class GMM(object):
             N = np.sum(responses,axis=1)
 
             for i in range(k):
-                mu = np.dot(responses[i,:],data) / N[i]
-                sigma = np.zeros((d,d))
+                mu = np.dot(responses[i,:], data) / N[i]
+                sigma = np.zeros((d, d))
 
                 for j in range(n):
-                   sigma += responses[i,j] * np.outer(data[j,:] - mu, data[j,:] - mu)
+                   sigma += responses[i, j] * np.outer(data[j, :] - mu, data[j, :] - mu)
 
                 sigma = sigma / N[i]
 
-                self.comps[i].update(mu,sigma) # update the normal with new parameters
+                self.comps[i].update(mu, sigma) # update the normal with new parameters
                 self.priors[i] = N[i] / np.sum(N) # normalize the new priors
 
 

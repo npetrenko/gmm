@@ -75,7 +75,7 @@ class Normal(object):
         self.margin = margin
         self.parent = parent
 
-        self.update(npa(mu),npa(sigma))
+        self.update(npa(mu), npa(sigma))
 
 
     def update(self, mu, sigma):
@@ -172,8 +172,8 @@ class Normal(object):
         idim = indices
         odim = npa([i for i in range(self.dim) if not i in indices])
 
-        Aaa = self.A[ix(odim,odim)]
-        Aab = self.A[ix(odim,idim)]
+        Aaa = self.A[ix(odim, odim)]
+        Aab = self.A[ix(odim, idim)]
         iAaa = None
         det = None
 
