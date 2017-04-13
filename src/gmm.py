@@ -11,6 +11,7 @@ import numpy as np
 import numpy.linalg as la
 import numpy.random as npr
 import random as pr
+import tqdm
 
 npa = np.array
 
@@ -30,13 +31,13 @@ class GMM(object):
         if not filename is None:  # load from file
             self.load_model(filename)
 
-        elif not params is None:  # initialize with parameters directly
+        elif params is not None:  # initialize with parameters directly
             self.comps = params['comps']
             self.ncomps = params['ncomps']
             self.dim = params['dim']
             self.priors = params['priors']
 
-        elif not data is None:  # initialize from data
+        elif data is not None:  # initialize from data
 
             assert dim and ncomps, "Need to define dim and ncomps."
 
@@ -69,8 +70,14 @@ class GMM(object):
 
             elif method is "nanfill":
                 # choose standard normal as init point
-                mus = pr.sample(data, ncomps)
-                clusters = [[] for i in range(ncomps)]
+                mus = []
+                while True:
+                    mu = pr.sample(data, 1)[0]
+                    if not np.any(np.isnan(mu)):
+                        mus.append(mu)
+                        if len(mus) == ncomps:
+                            break
+                clusters = [[] for _ in range(ncomps)]
                 for d in data:
                     i = np.argmin([la.norm(d - m) for m in mus])
                     clusters[i].append(d)
@@ -178,7 +185,7 @@ class GMM(object):
         if not self.nanfill:
             assert not np.any(mask), 'nan filling is supported only with "nanfill" init method'
 
-        for l in range(nsteps):
+        for l in tqdm.tqdm(range(nsteps)):
 
             # E step
 
@@ -199,6 +206,7 @@ class GMM(object):
                         arr = npa(arr)
                         unmasked = data[j] * ~mask[j] + arr
                         data[j] = unmasked
+                        #print(data[j])
                     else:
                         unmasked = data[j]
 
@@ -221,6 +229,8 @@ class GMM(object):
 
                 self.comps[i].update(mu, sigma)  # update the normal with new parameters
                 self.priors[i] = N[i] / np.sum(N)  # normalize the new priors
+        if self.nanfill:
+            return data
 
 
 def shownormal(data, gmm):
