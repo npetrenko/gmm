@@ -15,6 +15,8 @@ import tqdm
 
 npa = np.array
 
+from imp import reload
+
 import sys;
 
 sys.path.append('.')
@@ -82,12 +84,36 @@ class GMM(object):
                     i = np.argmin([la.norm(d - m) for m in mus])
                     clusters[i].append(d)
 
+                mus = npa(mus)
+
                 for i in range(ncomps):
-                    self.comps.append(Normal(dim, mu=np.zeros(dim, dtype='float64'),
+                    self.comps.append(Normal(dim, mu=mus[i],
                                              sigma=np.diag(np.ones(dim, dtype='float64'))))
 
-                self.priors = np.ones(ncomps, dtype="double") / np.array([len(c) for c in clusters])
+                self.priors = np.ones(ncomps, dtype="double") / ncomps
                 self.nanfill = True
+
+            elif method is "nanfill2":
+                # slightly smarter way for init
+                means = []
+                stds = []
+                X = data
+                na = np.logical_or(np.isnan(data), np.isinf(data)).T
+                for k in range(data.shape[1]):
+                    temp = X[~na[k], k]
+                    assert not np.any(np.isnan(temp)) and not np.any(np.isinf(temp))
+                    means.append(np.mean(temp))
+                    stds.append(np.std(temp))
+                means = np.array(means)
+                stds = np.array(stds)
+
+                for i in range(ncomps):
+                    self.comps.append(Normal(dim, mu=means + np.random.normal(scale=np.mean(stds)/3, size=means.shape),
+                                             sigma=np.diag(stds)))
+
+                self.priors = np.ones(ncomps, dtype="double") / ncomps
+                self.nanfill = True
+
 
             elif method is "kmeans":
                 # use kmeans to initialize the parameters
@@ -178,9 +204,10 @@ class GMM(object):
         d = self.dim
         n = len(data)
 
-        mask = np.isnan(data)
+        mask = np.logical_or(np.isnan(data), np.isinf(data))
         data = np.nan_to_num(data)
         ran = np.arange(mask.shape[1])
+        #print (self.priors)
 
         if not self.nanfill:
             assert not np.any(mask), 'nan filling is supported only with "nanfill" init method'
@@ -206,17 +233,21 @@ class GMM(object):
                         arr = npa(arr)
                         unmasked = data[j] * ~mask[j] + arr
                         data[j] = unmasked
-                        #print(data[j])
+                        #if np.any(np.isnan(unmasked)):
+                            #print(unmasked)
+                        #print(unmasked)
                     else:
                         unmasked = data[j]
 
                     responses[i, j] = self.priors[i] * self.comps[i].pdf(unmasked)
-
+            #print 'sum resp:'
+            #print(np.sum(responses, axis=0))
             responses /= np.sum(responses, axis=0)  # normalize the weights
 
             # M step
 
             N = np.sum(responses, axis=1)
+            #print(responses)
 
             for i in range(k):
                 mu = np.dot(responses[i, :], data) / N[i]
