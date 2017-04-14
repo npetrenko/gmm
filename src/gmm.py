@@ -198,7 +198,13 @@ class GMM(object):
 
         return GMM(params=params)
 
-    def em(self, data, nsteps=100):
+    def em(self, data, nsteps=100, reg=1e-4):
+        '''
+        fit model using EM
+        :param nsteps: number of steps
+        :param reg: regularizer, helps to prevent singularities
+        :return: data with filled nans, if any
+        '''
 
         k = self.ncomps
         d = self.dim
@@ -258,10 +264,9 @@ class GMM(object):
 
                 sigma = sigma / N[i]
 
-                self.comps[i].update(mu, sigma)  # update the normal with new parameters
+                self.comps[i].update(mu, sigma + np.diag(np.ones(len(sigma), dtype='float64'))*reg)  # update the normal with new parameters
                 self.priors[i] = N[i] / np.sum(N)  # normalize the new priors
-        if self.nanfill:
-            return data
+        return data
 
 
 def shownormal(data, gmm):
