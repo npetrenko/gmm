@@ -107,9 +107,12 @@ class GMM(object):
                 means = np.array(means)
                 stds = np.array(stds)
 
+                filt = np.logical_or(np.isnan(stds), np.isinf(stds), stds<0)
+                stds[filt] = np.nanmean(stds)
+
                 for i in range(ncomps):
-                    self.comps.append(Normal(dim, mu=means + np.random.normal(scale=np.mean(stds)/3, size=means.shape),
-                                             sigma=np.diag(stds)))
+                    self.comps.append(Normal(dim, mu=means + np.random.normal(scale=np.nanmean(stds)/3, size=means.shape),
+                                             sigma=np.diag(np.array([np.mean(stds)]*len(stds)))))
 
                 self.priors = np.ones(ncomps, dtype="double") / ncomps
                 self.nanfill = True
@@ -198,6 +201,25 @@ class GMM(object):
 
         return GMM(params=params)
 
+    def restore_nan(self, data):
+        restored = []
+        for d in data:
+            filt = np.logical_or(np.isnan(d), np.isinf(d))
+            if np.any(filt):
+                indices = np.arange(len(d))[~filt]
+                values = d[~filt]
+                part = self.condition(indices, values).mean()
+                new = []
+                count = 0
+                for i, k in enumerate(~filt):
+                    if k:
+                        new.append(d[i])
+                    else:
+                        new.append(part[count])
+                        count += 1
+                restored.append(new)
+        return np.array(restored)
+
     def em(self, data, nsteps=100, reg=1e-4):
         '''
         fit model using EM
@@ -266,7 +288,7 @@ class GMM(object):
 
                 self.comps[i].update(mu, sigma + np.diag(np.ones(len(sigma), dtype='float64'))*reg)  # update the normal with new parameters
                 self.priors[i] = N[i] / np.sum(N)  # normalize the new priors
-        return data
+        return self.restore_nan(data)
 
 
 def shownormal(data, gmm):
